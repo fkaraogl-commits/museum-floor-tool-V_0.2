@@ -100,7 +100,8 @@
       </div>
       <div class="hint" id="fileInfo">Φορτωμένη κάτοψη (δείγμα).</div>
       <div class="btnrow" style="margin-top:8px"><button class="btn" id="autoScan" style="width:100%">Αυτόματο σκανάρισμα (πειραματικό)</button></div>
-      <div class="hint">Ανιχνεύει αυτόματα ίσιους (οριζόντιους/κάθετους) τοίχους και τους προσθέτει ως <b>πρόχειρο</b>. Χρειάζεται ίντερνετ την 1η φορά. Μετά καθάρισέ το με Γόμα / Επεξεργασία / «Ένωση γωνιών &amp; ταφ».</div>
+      <div class="btnrow"><button class="btn" id="autoFix" style="width:100%">Αυτόματη διόρθωση</button></div>
+      <div class="hint">«Αυτόματο σκανάρισμα»: ανιχνεύει ίσιους τοίχους ως <b>πρόχειρο</b> (και offline). «Αυτόματη διόρθωση»: ισιώνει &amp; στοιχίζει τις γραμμές και ενώνει γωνίες/ταφ. Καθάρισε ό,τι περισσεύει με τη Γόμα.</div>
       <div class="btnrow" style="margin-top:8px"><button class="btn" data-tool="movescan" id="toolMoveScan">Μετακίνηση σκαναρίσματος</button></div>
       <div class="btnrow"><button class="btn" data-tool="movedraw" id="toolMoveDraw">Μετακίνηση σχεδίασης</button></div>
     </div>
@@ -306,54 +307,117 @@ function resetAll(){
   commit();renderList();renderEditor();refreshUI();draw();setStatus("wallStatus","Καθαρίστηκαν όλα. Αναίρεση για επαναφορά.",true);
 }
 function projSafeName(){let n=(($("projName")&&$("projName").value)||"").trim().replace(/[^\w\u0370-\u03ff\-]+/g,"_");return n||"katopsi";}
-let cvReady=false,cvLoading=false,cvPending=[];
-function finishCV(){if(cvReady)return;cvReady=true;cvLoading=false;const q=cvPending;cvPending=[];q.forEach(f=>f());}
-function loadCV(cb){
-  if(cvReady){cb();return;}
-  cvPending.push(cb);if(cvLoading)return;cvLoading=true;
-  window.Module={onRuntimeInitialized:function(){}};
-  const s=document.createElement("script");s.async=true;s.src="https://docs.opencv.org/4.8.0/opencv.js";
-  s.onerror=function(){cvLoading=false;cvPending=[];setStatus("wallStatus","Δεν φόρτωσε το OpenCV (χρειάζεται ίντερνετ).",false);};
-  document.body.appendChild(s);
-  const start=Date.now();
-  (function poll(){let c=window.cv;
-    if(c&&typeof c.then==="function"){c.then(function(m){window.cv=m;finishCV();});return;}
-    if(c&&c.Mat&&typeof c.imread==="function"){finishCV();return;}
-    if(Date.now()-start>45000){cvLoading=false;cvPending=[];setStatus("wallStatus","Το OpenCV άργησε να φορτώσει. Δοκίμασε ξανά.",false);return;}
-    setTimeout(poll,200);})();
+function otsuThr(hist,total){let sum=0;for(let i=0;i<256;i++)sum+=i*hist[i];let sumB=0,wB=0,max=0,thr=127;
+  for(let i=0;i<256;i++){wB+=hist[i];if(!wB)continue;const wF=total-wB;if(!wF)break;sumB+=i*hist[i];
+    const mB=sumB/wB,mF=(sum-sumB)/wF,between=wB*wF*(mB-mF)*(mB-mF);if(between>max){max=between;thr=i;}}return thr;}
+function scanComponents(mask,W,H,minLen,horizontal,segs){
+  const seen=new Uint8Array(W*H),stack=[];
+  for(let i0=0;i0<W*H;i0++){if(!mask[i0]||seen[i0])continue;
+    let minx=W,miny=H,maxx=0,maxy=0;stack.length=0;stack.push(i0);seen[i0]=1;
+    while(stack.length){const j=stack.pop(),x=j%W,y=(j/W)|0;
+      if(x<minx)minx=x;if(x>maxx)maxx=x;if(y<miny)miny=y;if(y>maxy)maxy=y;
+      if(x+1<W&&mask[j+1]&&!seen[j+1]){seen[j+1]=1;stack.push(j+1);}
+      if(x>0&&mask[j-1]&&!seen[j-1]){seen[j-1]=1;stack.push(j-1);}
+      if(y+1<H&&mask[j+W]&&!seen[j+W]){seen[j+W]=1;stack.push(j+W);}
+      if(y>0&&mask[j-W]&&!seen[j-W]){seen[j-W]=1;stack.push(j-W);}}
+    const w=maxx-minx+1,h=maxy-miny+1;
+    if(horizontal){if(w>=minLen&&w>h*2){const cy=(miny+maxy)/2;segs.push([{x:minx,y:cy},{x:maxx,y:cy}]);}}
+    else{if(h>=minLen&&h>w*2){const cx=(minx+maxx)/2;segs.push([{x:cx,y:miny},{x:cx,y:maxy}]);}}}
 }
-function collectComponents(cv,mask,horizontal,minLen,segs){
-  const labels=new cv.Mat(),stats=new cv.Mat(),cents=new cv.Mat();
-  const n=cv.connectedComponentsWithStats(mask,labels,stats,cents,8,cv.CV_32S);
-  for(let i=1;i<n;i++){const o=i*5;const x=stats.data32S[o],y=stats.data32S[o+1],w=stats.data32S[o+2],h=stats.data32S[o+3];
-    if(horizontal){if(w>=minLen&&w>h*2.5){const cy=y+h/2;segs.push([{x:x,y:cy},{x:x+w,y:cy}]);}}
-    else{if(h>=minLen&&h>w*2.5){const cx=x+w/2;segs.push([{x:cx,y:y},{x:cx,y:y+h}]);}}}
-  labels.delete();stats.delete();cents.delete();
+function detectWalls(){
+  const scale=Math.min(1,1000/Math.max(S.imgW,S.imgH));
+  const W=Math.max(1,Math.round(S.imgW*scale)),H=Math.max(1,Math.round(S.imgH*scale));
+  const cvs=document.createElement("canvas");cvs.width=W;cvs.height=H;
+  const g=cvs.getContext("2d");g.drawImage(S.img,0,0,W,H);
+  const data=g.getImageData(0,0,W,H).data,N=W*H;
+  const gray=new Uint8Array(N),hist=new Array(256).fill(0);
+  for(let i=0,p=0;i<N;i++,p+=4){const v=(data[p]*0.299+data[p+1]*0.587+data[p+2]*0.114)|0;gray[i]=v;hist[v]++;}
+  const thr=otsuThr(hist,N),bin=new Uint8Array(N);
+  for(let i=0;i<N;i++)bin[i]=gray[i]<thr?1:0;
+  const minLen=Math.max(15,Math.round(Math.min(W,H)*0.05));
+  const hmask=new Uint8Array(N);
+  for(let y=0;y<H;y++){let x=0;while(x<W){if(bin[y*W+x]){let x2=x;while(x2<W&&bin[y*W+x2])x2++;if(x2-x>=minLen)for(let k=x;k<x2;k++)hmask[y*W+k]=1;x=x2;}else x++;}}
+  const vmask=new Uint8Array(N);
+  for(let x=0;x<W;x++){let y=0;while(y<H){if(bin[y*W+x]){let y2=y;while(y2<H&&bin[y2*W+x])y2++;if(y2-y>=minLen)for(let k=y;k<y2;k++)vmask[k*W+x]=1;y=y2;}else y++;}}
+  const segs=[];scanComponents(hmask,W,H,minLen,true,segs);scanComponents(vmask,W,H,minLen,false,segs);
+  return segs.map(s=>[{x:s[0].x/scale,y:s[0].y/scale},{x:s[1].x/scale,y:s[1].y/scale}]);
 }
-function runDetect(){
-  const cv=window.cv;
-  const cvs=document.createElement("canvas");cvs.width=S.imgW;cvs.height=S.imgH;
-  cvs.getContext("2d").drawImage(S.img,0,0,S.imgW,S.imgH);
-  const src=cv.imread(cvs),gray=new cv.Mat(),bw=new cv.Mat();
-  cv.cvtColor(src,gray,cv.COLOR_RGBA2GRAY);
-  cv.threshold(gray,bw,0,255,cv.THRESH_BINARY_INV+cv.THRESH_OTSU);
-  const minLen=Math.max(20,Math.round(Math.min(S.imgW,S.imgH)*0.04));
-  const hs=Math.max(12,Math.round(S.imgW/50)),vs=Math.max(12,Math.round(S.imgH/50));
-  const horK=cv.getStructuringElement(cv.MORPH_RECT,new cv.Size(hs,1));
-  const verK=cv.getStructuringElement(cv.MORPH_RECT,new cv.Size(1,vs));
-  const hor=new cv.Mat(),ver=new cv.Mat();
-  cv.erode(bw,hor,horK);cv.dilate(hor,hor,horK);
-  cv.erode(bw,ver,verK);cv.dilate(ver,ver,verK);
-  const segs=[];collectComponents(cv,hor,true,minLen,segs);collectComponents(cv,ver,false,minLen,segs);
-  src.delete();gray.delete();bw.delete();hor.delete();ver.delete();horK.delete();verK.delete();
-  if(segs.length){segs.forEach(s=>S.walls.push(s));commit();refreshUI();draw();
-    setStatus("wallStatus","Βρέθηκαν "+segs.length+" γραμμές — καθάρισε με Γόμα/Επεξεργασία & «Ένωση».",true);}
-  else setStatus("wallStatus","Δεν βρέθηκαν καθαρές γραμμές. Δοκίμασε καθαρότερη εικόνα.",false);
+function snapAxisCoords(axis,tol){
+  const pts=[];for(const w of S.walls)for(const p of w)pts.push(p);
+  if(!pts.length)return;
+  const vals=pts.map(p=>p[axis]).slice().sort((a,b)=>a-b);
+  const centers=[];let cl=[vals[0]],mean=vals[0];
+  for(let i=1;i<vals.length;i++){if(vals[i]-mean<=tol){cl.push(vals[i]);mean=cl.reduce((s,v)=>s+v,0)/cl.length;}
+    else{centers.push(mean);cl=[vals[i]];mean=vals[i];}}
+  centers.push(mean);
+  for(const p of pts){let best=p[axis],bd=tol*1.6;for(const c of centers){const d=Math.abs(p[axis]-c);if(d<bd){bd=d;best=c;}}p[axis]=best;}
+}
+function segKey(a,b){const k1=Math.round(a.x)+"_"+Math.round(a.y),k2=Math.round(b.x)+"_"+Math.round(b.y);return k1<k2?k1+"|"+k2:k2+"|"+k1;}
+function addBridges(tol){
+  const vlines=[],hlines=[];
+  for(const w of S.walls){if(w.length<2)continue;const a=w[0],b=w[w.length-1];
+    if(Math.abs(b.y-a.y)<0.001)hlines.push({y:a.y,x1:Math.min(a.x,b.x),x2:Math.max(a.x,b.x)});
+    else if(Math.abs(b.x-a.x)<0.001)vlines.push({x:a.x,y1:Math.min(a.y,b.y),y2:Math.max(a.y,b.y)});}
+  const seen=new Set();for(const w of S.walls){if(w.length===2)seen.add(segKey(w[0],w[1]));}
+  const bridges=[];
+  for(const w of S.walls){if(w.length<2)continue;
+    const horizontal=Math.abs(w[w.length-1].y-w[0].y)<0.001,vertical=Math.abs(w[w.length-1].x-w[0].x)<0.001;
+    for(const ei of [0,w.length-1]){const p=w[ei];
+      if(horizontal){let best=null,bd=tol;for(const v of vlines){if(p.y>=v.y1-tol&&p.y<=v.y2+tol){const d=Math.abs(p.x-v.x);if(d>0.6&&d<bd){bd=d;best=v.x;}}}
+        if(best!=null){const b=[{x:p.x,y:p.y},{x:best,y:p.y}],k=segKey(b[0],b[1]);if(!seen.has(k)){seen.add(k);bridges.push(b);}}}
+      else if(vertical){let best=null,bd=tol;for(const h of hlines){if(p.x>=h.x1-tol&&p.x<=h.x2+tol){const d=Math.abs(p.y-h.y);if(d>0.6&&d<bd){bd=d;best=h.y;}}}
+        if(best!=null){const b=[{x:p.x,y:p.y},{x:p.x,y:best}],k=segKey(b[0],b[1]);if(!seen.has(k)){seen.add(k);bridges.push(b);}}}}}
+  bridges.forEach(b=>S.walls.push(b));
+  return bridges.length;
+}
+function mergeCollinear(gap){
+  const H={},V={},others=[];
+  for(const w of S.walls){if(w.length!==2){others.push(w);continue;}const a=w[0],b=w[1];
+    if(Math.abs(a.y-b.y)<0.001){const y=a.y;(H[y]=H[y]||[]).push([Math.min(a.x,b.x),Math.max(a.x,b.x)]);}
+    else if(Math.abs(a.x-b.x)<0.001){const x=a.x;(V[x]=V[x]||[]).push([Math.min(a.y,b.y),Math.max(a.y,b.y)]);}
+    else others.push(w);}
+  const out=others.slice();
+  for(const y in H){const r=H[y].sort((p,q)=>p[0]-q[0]);let cs=r[0][0],ce=r[0][1];
+    for(let i=1;i<r.length;i++){if(r[i][0]<=ce+gap)ce=Math.max(ce,r[i][1]);else{out.push([{x:cs,y:+y},{x:ce,y:+y}]);cs=r[i][0];ce=r[i][1];}}
+    out.push([{x:cs,y:+y},{x:ce,y:+y}]);}
+  for(const x in V){const r=V[x].sort((p,q)=>p[0]-q[0]);let cs=r[0][0],ce=r[0][1];
+    for(let i=1;i<r.length;i++){if(r[i][0]<=ce+gap)ce=Math.max(ce,r[i][1]);else{out.push([{x:+x,y:cs},{x:+x,y:ce}]);cs=r[i][0];ce=r[i][1];}}
+    out.push([{x:+x,y:cs},{x:+x,y:ce}]);}
+  S.walls=out;
+}
+function joinOrtho(tol){
+  const vlines=[],hlines=[];
+  for(const w of S.walls){if(w.length<2)continue;const a=w[0],b=w[w.length-1];
+    if(Math.abs(b.y-a.y)<0.001)hlines.push({y:a.y,x1:Math.min(a.x,b.x),x2:Math.max(a.x,b.x)});
+    else if(Math.abs(b.x-a.x)<0.001)vlines.push({x:a.x,y1:Math.min(a.y,b.y),y2:Math.max(a.y,b.y)});}
+  for(const w of S.walls){if(w.length<2)continue;
+    const horizontal=Math.abs(w[w.length-1].y-w[0].y)<0.001,vertical=Math.abs(w[w.length-1].x-w[0].x)<0.001;
+    for(const ei of [0,w.length-1]){const p=w[ei];
+      if(horizontal){let best=null,bd=tol;for(const v of vlines){if(p.y>=v.y1-tol&&p.y<=v.y2+tol){const d=Math.abs(p.x-v.x);if(d>0.001&&d<bd){bd=d;best=v.x;}}}if(best!=null)p.x=best;}
+      else if(vertical){let best=null,bd=tol;for(const h of hlines){if(p.x>=h.x1-tol&&p.x<=h.x2+tol){const d=Math.abs(p.y-h.y);if(d>0.001&&d<bd){bd=d;best=h.y;}}}if(best!=null)p.y=best;}}}
+}
+function autoFix(){
+  if(!S.walls.length){setStatus("wallStatus","Δεν υπάρχουν τοίχοι για διόρθωση.",false);return;}
+  S.walls.forEach(w=>{for(let i=0;i<w.length-1;i++){const a=w[i],b=w[i+1];
+    if(Math.abs(b.x-a.x)>=Math.abs(b.y-a.y)){const y=(a.y+b.y)/2;a.y=y;b.y=y;}else{const x=(a.x+b.x)/2;a.x=x;b.x=x;}}});
+  const alignTol=S.pxPerM?0.2*S.pxPerM:9;
+  snapAxisCoords("x",alignTol);snapAxisCoords("y",alignTol);
+  mergeCollinear(S.pxPerM?0.35*S.pxPerM:16);
+  const joinTol=S.pxPerM?0.45*S.pxPerM:20;
+  joinOrtho(joinTol);joinOrtho(joinTol);
+  S.walls.forEach(w=>{for(let i=0;i<w.length-1;i++){const a=w[i],b=w[i+1];
+    if(Math.abs(b.x-a.x)>=Math.abs(b.y-a.y)){const y=(a.y+b.y)/2;a.y=y;b.y=y;}else{const x=(a.x+b.x)/2;a.x=x;b.x=x;}}});
+  mergeCollinear(S.pxPerM?0.35*S.pxPerM:16);
+  S.wallHandles=true;commit();refreshUI();draw();setStatus("wallStatus","Έγινε αυτόματη διόρθωση. Γραμμές: "+S.walls.length,true);
 }
 function autoScan(){
   if(!S.img){setStatus("wallStatus","Άνοιξε πρώτα μια κάτοψη.",false);return;}
-  setStatus("wallStatus","Φόρτωση μηχανής ανίχνευσης…",true);
-  loadCV(function(){setStatus("wallStatus","Ανίχνευση τοίχων…",true);setTimeout(function(){try{runDetect();}catch(e){setStatus("wallStatus","Σφάλμα ανίχνευσης.",false);}},30);});
+  setStatus("wallStatus","Ανίχνευση τοίχων…",true);
+  setTimeout(function(){try{const segs=detectWalls();
+    if(segs.length){segs.forEach(s=>S.walls.push(s));S.wallHandles=true;commit();refreshUI();draw();
+      setStatus("wallStatus","Βρέθηκαν "+segs.length+" γραμμές — καθάρισε με Γόμα/Επεξεργασία & «Ένωση».",true);}
+    else setStatus("wallStatus","Δεν βρέθηκαν καθαρές γραμμές. Δοκίμασε καθαρότερη εικόνα.",false);
+  }catch(e){setStatus("wallStatus","Σφάλμα ανίχνευσης.",false);}},40);
 }
 function saveProject(){
   let def=(($("projName")&&$("projName").value)||"").trim()||"katopsi";
@@ -431,6 +495,7 @@ $("saveProj").addEventListener("click",saveProject);
 $("projFile").addEventListener("change",e=>{openProject(e.target.files[0]);e.target.value="";});
 $("resetAll").addEventListener("click",resetAll);
 $("autoScan").addEventListener("click",autoScan);
+$("autoFix").addEventListener("click",autoFix);
 ["dragover","drop"].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();if(ev==="drop"&&e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0]);}));
 
 /* geometry helpers */
@@ -489,10 +554,8 @@ function tidyWalls(){
   if(S.currentWall){if(S.currentWall.length>1)S.walls.push(S.currentWall);S.currentWall=null;}
   if(!S.walls.length)return;
   S.walls=S.walls.map(w=>{if(w.length<2)return w;const out=[{x:w[0].x,y:w[0].y}];
-    for(let i=1;i<w.length;i++)out.push(cleanSeg(out[i-1],w[i],6));return out;});      // mild straighten, keeps every point
-  const weld=S.pxPerM?0.6*S.pxPerM:26, lineTol=S.pxPerM?0.6*S.pxPerM:26, ext=0.6;
-  for(let pass=0;pass<3;pass++){weldVertices(weld);snapTJunctions(lineTol,ext);}       // repeated joining until corners/T's close
-  weldVertices(weld);
+    for(let i=1;i<w.length;i++)out.push(cleanSeg(out[i-1],w[i],6));return out;});      // mild straighten, keeps diagonals
+  addBridges(S.pxPerM?0.5*S.pxPerM:22);                                                // fill gaps with short collinear segments (no moving)
 }
 
 /* drawing on a context with a given transform */
