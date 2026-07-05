@@ -103,6 +103,16 @@
     </div>
 
     <div class="sec">
+      <h2>Έργο &amp; καθαρισμός</h2>
+      <label class="f" style="display:block;margin-bottom:4px">Όνομα έργου</label>
+      <input type="text" id="projName" placeholder="π.χ. Goulandri_floor_1">
+      <div class="btnrow" style="margin-top:8px"><button class="btn" id="saveProj" style="width:100%">Αποθήκευση έργου (.json)</button></div>
+      <label class="uploadbtn" style="margin-top:8px">Άνοιγμα έργου (.json)<input type="file" id="projFile" accept=".json,application/json"></label>
+      <div class="btnrow" style="margin-top:8px"><button class="btn ghost" id="resetAll" style="width:100%;color:var(--danger);border-color:#5a3a34">Γενικός καθαρισμός</button></div>
+      <div class="hint">Αποθήκευσε τη δουλειά σε αρχείο για να τη διορθώσεις αργότερα, χωρίς να ξεκινήσεις από την αρχή. Ο «Γενικός καθαρισμός» σβήνει τοίχους, σχήματα, σημάδια και βαθμονόμηση.</div>
+    </div>
+
+    <div class="sec">
       <h2>Απόσταση βαθμονόμησης</h2>
       <div class="btnrow"><button class="btn on" data-tool="calib" id="toolCalib">Ρύθμιση Α–Β</button></div>
       <div class="hint">Άγγιξε <b style="color:var(--brass)">Α</b>, μετά <b style="color:var(--brass)">Β</b> σε γνωστή απόσταση· σύρε τα άκρα.</div>
@@ -278,12 +288,37 @@ async function load(){
   if(!hadImg&&typeof DEFAULT_IMG==="string"&&DEFAULT_IMG.slice(0,4)==="data"){
     S.imgDataUrl=DEFAULT_IMG;try{await setImage(DEFAULT_IMG,true);}catch(e){}scheduleSave();
   }
+  syncControls();
+  renderList();renderEditor();refreshUI();history=[snapshot()];draw();
+}
+function syncControls(){
   $("mDia").value=S.mdef.diaM;$("mSize").value=S.mdef.labelSize;$("mColor").value=S.mdef.color;$("mLabelColor").value=S.mdef.labelColor;
   $("tScan").classList.toggle("on",S.showScan);$("tWalls").classList.toggle("on",S.showWalls);$("tMarkers").classList.toggle("on",S.showMarkers);
   $("snapWalls").classList.toggle("on",S.snap);
   $("hideAB").checked=!S.showAB;
   $("bgColor").value=S.bgColor;$("gridColor").value=S.gridColor;$("wallColor").value=S.wallColor;$("wallWidth2").value=S.wallWidth;
-  renderList();renderEditor();refreshUI();history=[snapshot()];draw();
+}
+function resetAll(){
+  S.a=null;S.b=null;S.pxPerM=null;S.walls=[];S.currentWall=null;S.markers=[];S.selected=null;S.counter=0;S.imgOff={x:0,y:0};S.shapes=[];S.selShapeId=null;S.previewShape=null;
+  commit();renderList();renderEditor();refreshUI();draw();setStatus("wallStatus","Καθαρίστηκαν όλα. Αναίρεση για επαναφορά.",true);
+}
+function projSafeName(){let n=(($("projName")&&$("projName").value)||"").trim().replace(/[^\w\u0370-\u03ff\-]+/g,"_");return n||"katopsi";}
+function saveProject(){
+  const st=serializeState();if(st.imgDataUrl===DEFAULT_IMG){delete st.imgDataUrl;st.useSample=true;}
+  const blob=new Blob([JSON.stringify(st)],{type:"application/json"});const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=url;a.download=projSafeName()+".json";document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),2000);setStatus("wallStatus","Το έργο αποθηκεύτηκε.",true);
+}
+async function openProject(file){
+  if(!file)return;
+  try{const d=JSON.parse(await file.text());
+    S.a=null;S.b=null;S.pxPerM=null;S.walls=[];S.currentWall=null;S.markers=[];S.selected=null;S.counter=0;S.imgOff={x:0,y:0};S.shapes=[];S.selShapeId=null;S.previewShape=null;
+    applyState(d);
+    if(d.imgDataUrl){S.imgDataUrl=d.imgDataUrl;await setImage(d.imgDataUrl,true);}
+    else if(typeof DEFAULT_IMG==="string"){S.imgDataUrl=DEFAULT_IMG;await setImage(DEFAULT_IMG,true);}
+    syncControls();history=[snapshot()];renderList();renderEditor();refreshUI();draw();scheduleSave();closePanel();
+    $("fileInfo").textContent="Έργο φορτώθηκε.";
+  }catch(e){setStatus("wallStatus","Δεν φορτώθηκε το αρχείο έργου.",false);}
 }
 
 /* history / undo */
@@ -335,6 +370,9 @@ async function handleFile(file){
   }catch(e){$("fileInfo").textContent="Δεν φόρτωσε το αρχείο. Δοκίμασε JPG/PNG ή άλλο PDF.";}
 }
 $("file").addEventListener("change",e=>handleFile(e.target.files[0]));
+$("saveProj").addEventListener("click",saveProject);
+$("projFile").addEventListener("change",e=>{openProject(e.target.files[0]);e.target.value="";});
+$("resetAll").addEventListener("click",resetAll);
 ["dragover","drop"].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();if(ev==="drop"&&e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0]);}));
 
 /* geometry helpers */
