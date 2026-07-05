@@ -582,7 +582,7 @@ cv.addEventListener("pointerdown",e=>{
     else if(S.tool==="marker"){const m=hitMarker(sx,sy);if(m){selectMarker(m.id);const [ix,iy]=s2i(sx,sy);single.marker=m;single.offx=ix-m.x;single.offy=iy-m.y;cv.style.cursor=CUR_GRABBING;}}
     else if(S.tool==="erase"){const sb=hitShapeBody(sx,sy);if(sb){S.shapes=S.shapes.filter(s=>s!==sb);if(S.selShapeId===sb.id)S.selShapeId=null;commit();draw();single.erasing=true;single.skipErase=true;}
       else{single.erasing=true;S.cursor={sx,sy};const [ix,iy]=s2i(sx,sy);eraseAt(ix,iy,ERASER/S.view.scale);draw();}}
-    else if(S.tool==="walls"){single.wall=true;}
+    else if(S.tool==="walls"){single.wall=true;suppressClick=false;}
     else if(S.tool==="edit"){single.edit=true;const [ix,iy]=s2i(sx,sy);single.downImg={x:ix,y:iy};
       const sh=hitShapeHandle(sx,sy);
       if(sh){single.shapeResize=sh;S.selShapeId=sh.shape.id;S.selected=null;renderEditor();renderList();const cs=shapeCorners(sh.shape);single.shapeFixed=cs[(sh.corner+2)%4];}
@@ -606,7 +606,7 @@ cv.addEventListener("pointermove",e=>{const p=pointers.get(e.pointerId);
     S.view.scale=Math.max(0.05,Math.min(20,pinch.scale*(nd/pinch.d)));S.view.ox=nmx-ix*S.view.scale;S.view.oy=nmy-iy*S.view.scale;draw();return;}
   if(single&&e.pointerId===single.id){const dx=sx-single.dsx,dy=sy-single.dsy;if(!single.moved&&Math.hypot(dx,dy)>5)single.moved=true;
     if(single.erasing){if(!single.skipErase){S.cursor={sx,sy};const [ix,iy]=s2i(sx,sy);eraseAt(ix,iy,ERASER/S.view.scale);}draw();}
-    else if(single.wall){S.cursor={sx,sy};draw();}
+    else if(single.wall){if(single.moved){S.view.ox=single.ox+dx;S.view.oy=single.oy+dy;suppressClick=true;draw();}else{S.cursor={sx,sy};draw();}}
     else if(single.edit){
       if(single.shapeResize&&single.moved){const [ix,iy]=s2i(sx,sy);const sh=single.shapeResize.shape;const sq=(sh.type==="square"||sh.type==="circle");const b=normBox(single.shapeFixed.x,single.shapeFixed.y,ix,iy,sq);sh.x=b.x;sh.y=b.y;sh.w=b.w;sh.h=b.h;draw();}
       else if(single.shapeMove&&single.moved){const [ix,iy]=s2i(sx,sy);single.shapeMove.x=single.shapeOrig.x+(ix-single.downImg.x);single.shapeMove.y=single.shapeOrig.y+(iy-single.downImg.y);draw();}
