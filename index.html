@@ -421,21 +421,23 @@ function cleanSeg(a,b,tolDeg){
   if(Math.abs(d)<=tolDeg*Math.PI/180){const ux=Math.cos(snapped),uy=Math.sin(snapped),proj=dx*ux+dy*uy;return {x:a.x+ux*proj,y:a.y+uy*proj};}
   return {x:b.x,y:b.y};
 }
-function projFoot(p,A,B){const dx=B.x-A.x,dy=B.y-A.y,L2=dx*dx+dy*dy;let t=L2?((p.x-A.x)*dx+(p.y-A.y)*dy)/L2:0;const inside=t>0.08&&t<0.92;t=Math.max(0,Math.min(1,t));return {x:A.x+dx*t,y:A.y+dy*t,inside};}
-function snapTJunctions(tol){
-  for(const w of S.walls){if(w.length<2)continue;
-    for(let ei=0;ei<2;ei++){const p=w[ei];let best=null,bestD=tol;
-      for(const o of S.walls){if(o===w||o.length<2)continue;const f=projFoot(p,o[0],o[1]);if(!f.inside)continue;
-        const d=Math.hypot(p.x-f.x,p.y-f.y);if(d>0.001&&d<bestD){bestD=d;best=f;}}
+function projFoot(p,A,B){const dx=B.x-A.x,dy=B.y-A.y,L2=dx*dx+dy*dy;if(L2<1e-6)return null;const t=((p.x-A.x)*dx+(p.y-A.y)*dy)/L2;return {x:A.x+dx*t,y:A.y+dy*t,t};}
+function snapTJunctions(tol,ext){
+  for(const w of S.walls){if(w.length<2)continue;const ends=[0,w.length-1];
+    for(const ei of ends){const p=w[ei];let best=null,bestD=tol;
+      for(const o of S.walls){if(o===w||o.length<2)continue;
+        for(let si=0;si<o.length-1;si++){const f=projFoot(p,o[si],o[si+1]);if(!f||f.t<-ext||f.t>1+ext)continue;
+          const d=Math.hypot(p.x-f.x,p.y-f.y);if(d>0.001&&d<bestD){bestD=d;best=f;}}}
       if(best){p.x=best.x;p.y=best.y;}}}
 }
 function tidyWalls(){
   if(S.currentWall){if(S.currentWall.length>1)S.walls.push(S.currentWall);S.currentWall=null;}
   if(!S.walls.length)return;
   S.walls=S.walls.map(w=>{if(w.length<2)return w;const out=[{x:w[0].x,y:w[0].y}];
-    for(let i=1;i<w.length;i++)out.push(cleanSeg(out[i-1],w[i],5));return out;});   // mild straighten, keeps every point
-  weldVertices(S.pxPerM?0.5*S.pxPerM:22);                                            // join nearby corners (never same wall)
-  snapTJunctions(S.pxPerM?0.4*S.pxPerM:18);                                          // join T-junctions
+    for(let i=1;i<w.length;i++)out.push(cleanSeg(out[i-1],w[i],6));return out;});      // mild straighten, keeps every point
+  const weld=S.pxPerM?0.6*S.pxPerM:26, lineTol=S.pxPerM?0.6*S.pxPerM:26, ext=0.6;
+  for(let pass=0;pass<3;pass++){weldVertices(weld);snapTJunctions(lineTol,ext);}       // repeated joining until corners/T's close
+  weldVertices(weld);
 }
 
 /* drawing on a context with a given transform */
