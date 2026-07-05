@@ -137,6 +137,23 @@
     </div>
 
     <div class="sec">
+      <h2>Σχήματα</h2>
+      <div class="btnrow">
+        <button class="btn" id="shapeRect">Ορθογώνιο</button>
+        <button class="btn" id="shapeSquare">Τετράγωνο</button>
+      </div>
+      <div class="btnrow">
+        <button class="btn" id="shapeTri">Τρίγωνο</button>
+        <button class="btn" id="shapeCircle">Κύκλος</button>
+      </div>
+      <div class="btnrow">
+        <button class="btn" id="copyShape">Αντιγραφή</button>
+        <button class="btn" id="pasteShape">Επικόλληση</button>
+      </div>
+      <div class="hint">Διάλεξε σχήμα και <b style="color:var(--brass)">σύρε</b> στο σχέδιο για να το φτιάξεις. Άλλαξε μέγεθος από την <b style="color:var(--brass)">Επεξεργασία</b> (σύρε τις γωνίες). Επίλεξε ένα σχήμα στην Επεξεργασία και μετά <b style="color:var(--brass)">Αντιγραφή/Επικόλληση</b>.</div>
+    </div>
+
+    <div class="sec">
       <h2>Σημάδια εκθεμάτων</h2>
       <div class="btnrow"><button class="btn" data-tool="marker" id="toolMarker">Τοποθέτηση σημαδιού</button></div>
       <div class="hint">Άγγιξε την κάτοψη για νέο σημάδι. Σύρε για μετακίνηση. Ονομασία σε Georgia, κάτω από το σημάδι.</div>
@@ -199,14 +216,14 @@ const S={imgDataUrl:null,img:null,imgW:0,imgH:0,view:{scale:1,ox:0,oy:0},
   markers:[],selected:null,counter:0,
   mdef:{diaM:0.5,color:"#B08D57",labelColor:"#1E2530",labelSize:14},
   tool:"calib",snap:true,showScan:true,showWalls:true,showMarkers:true,showAB:true,cursor:null,imgOff:{x:0,y:0},
-  bgColor:"#FFFFFF",gridColor:"#8C96A0",wallColor:"#242E3A",wallWidth:3,wallHandles:true,placeArmed:false};
+  bgColor:"#FFFFFF",gridColor:"#8C96A0",wallColor:"#242E3A",wallWidth:3,wallHandles:true,placeArmed:false,shapes:[],shapeType:"rect",previewShape:null,selShapeId:null};
 
 /* storage */
 let saveT=null;
 function scheduleSave(){if(typeof window.storage==="undefined")return;clearTimeout(saveT);saveT=setTimeout(save,400);}
 function serializeState(){return {imgDataUrl:S.imgDataUrl,imgW:S.imgW,imgH:S.imgH,a:S.a,b:S.b,pxPerM:S.pxPerM,
   walls:S.walls,markers:S.markers,counter:S.counter,mdef:S.mdef,snap:S.snap,showScan:S.showScan,showWalls:S.showWalls,showMarkers:S.showMarkers,showAB:S.showAB,
-  bgColor:S.bgColor,gridColor:S.gridColor,wallColor:S.wallColor,wallWidth:S.wallWidth,imgOff:S.imgOff};}
+  bgColor:S.bgColor,gridColor:S.gridColor,wallColor:S.wallColor,wallWidth:S.wallWidth,imgOff:S.imgOff,shapes:S.shapes};}
 function copyDefaultState(){
   const st=serializeState();
   if(st.imgDataUrl===DEFAULT_IMG){delete st.imgDataUrl;st.useSample=true;}
@@ -235,7 +252,7 @@ function downloadDeployable(){
 async function save(){if(typeof window.storage==="undefined")return;
   try{await window.storage.set(STORE_KEY,JSON.stringify({imgDataUrl:S.imgDataUrl,imgW:S.imgW,imgH:S.imgH,a:S.a,b:S.b,pxPerM:S.pxPerM,
     walls:S.walls,markers:S.markers,counter:S.counter,mdef:S.mdef,snap:S.snap,showScan:S.showScan,showWalls:S.showWalls,showMarkers:S.showMarkers,showAB:S.showAB,
-    bgColor:S.bgColor,gridColor:S.gridColor,wallColor:S.wallColor,wallWidth:S.wallWidth,imgOff:S.imgOff}),false);}catch(e){}}
+    bgColor:S.bgColor,gridColor:S.gridColor,wallColor:S.wallColor,wallWidth:S.wallWidth,imgOff:S.imgOff,shapes:S.shapes}),false);}catch(e){}}
 const DEFAULT_STATE=(typeof window!=="undefined"&&window.__DEFAULT_STATE__)||null;
 function applyState(d){
   S.imgW=d.imgW||0;S.imgH=d.imgH||0;S.a=d.a||null;S.b=d.b||null;S.pxPerM=d.pxPerM||null;
@@ -246,6 +263,7 @@ function applyState(d){
   S.showScan=d.showScan!==false;S.showWalls=d.showWalls!==false;S.showMarkers=d.showMarkers!==false;S.showAB=d.showAB!==false;
   S.bgColor=d.bgColor||S.bgColor;S.gridColor=d.gridColor||S.gridColor;S.wallColor=d.wallColor||S.wallColor;S.wallWidth=d.wallWidth||S.wallWidth;
   if(d.imgOff)S.imgOff=d.imgOff;
+  S.shapes=Array.isArray(d.shapes)?d.shapes:[];S.shapes.forEach((s,i)=>{if(!s.id)s.id="s"+i+"_"+Date.now();});
 }
 async function load(){
   let hadImg=false;
@@ -270,12 +288,13 @@ async function load(){
 
 /* history / undo */
 let history=[],HISTMAX=80;
-function snapshot(){return JSON.stringify({a:S.a,b:S.b,pxPerM:S.pxPerM,walls:S.walls,currentWall:S.currentWall,markers:S.markers,selected:S.selected,counter:S.counter,mdef:S.mdef,imgOff:S.imgOff});}
+function snapshot(){return JSON.stringify({a:S.a,b:S.b,pxPerM:S.pxPerM,walls:S.walls,currentWall:S.currentWall,markers:S.markers,selected:S.selected,counter:S.counter,mdef:S.mdef,imgOff:S.imgOff,shapes:S.shapes});}
 function commit(){history.push(snapshot());if(history.length>HISTMAX)history.shift();scheduleSave();}
 function undo(){if(S.currentWall){S.currentWall=null;refreshUI();draw();return;}
   if(history.length<=1)return;history.pop();const s=JSON.parse(history[history.length-1]);
   S.a=s.a;S.b=s.b;S.pxPerM=s.pxPerM;S.walls=s.walls;S.currentWall=s.currentWall;S.markers=s.markers;S.selected=s.selected;S.counter=s.counter;S.mdef=s.mdef;
   if(s.imgOff)S.imgOff=s.imgOff;
+  if(Array.isArray(s.shapes))S.shapes=s.shapes;
   renderList();renderEditor();refreshUI();draw();scheduleSave();}
 
 /* sizing / transforms */
@@ -384,6 +403,7 @@ function renderScene(g,toScreen,opts){
   if(walls){g.lineJoin="round";g.lineCap="round";g.strokeStyle=S.wallColor;g.lineWidth=opts.wallW;
     S.walls.forEach(chain=>{if(chain.length<2)return;
       g.beginPath();chain.forEach((p,i)=>{const [x,y]=toScreen(p.x,p.y);i?g.lineTo(x,y):g.moveTo(x,y);});g.stroke();});
+    for(const sh of S.shapes){drawShapePath(g,sh,toScreen);g.stroke();}
   }
   if(S.showMarkers||opts.force){
     S.markers.forEach(m=>{const [cx,cy]=toScreen(m.x,m.y);let r=markerRadiusImg(m)*opts.rscale;r=Math.max(r,3);
@@ -421,7 +441,11 @@ function draw(){
     S.currentWall.forEach(p=>{const [x,y]=i2s(p.x,p.y);ctx.beginPath();ctx.arc(x,y,4,0,7);ctx.fillStyle="#B08D57";ctx.fill();});
   }
   if(S.tool==="edit"&&S.wallHandles){S.walls.forEach(ch=>{ch.forEach(p=>{const [x,y]=i2s(p.x,p.y);
-    ctx.beginPath();ctx.arc(x,y,5,0,7);ctx.fillStyle="#fff";ctx.fill();ctx.strokeStyle="#B08D57";ctx.lineWidth=2;ctx.stroke();});});}
+    ctx.beginPath();ctx.arc(x,y,5,0,7);ctx.fillStyle="#fff";ctx.fill();ctx.strokeStyle="#B08D57";ctx.lineWidth=2;ctx.stroke();});});
+    S.shapes.forEach(sh=>{shapeCorners(sh).forEach(p=>{const [x,y]=i2s(p.x,p.y);
+      ctx.beginPath();ctx.arc(x,y,5,0,7);ctx.fillStyle="#fff";ctx.fill();ctx.strokeStyle="#B08D57";ctx.lineWidth=2;ctx.stroke();});});}
+  if(S.previewShape){ctx.setLineDash([8,6]);ctx.strokeStyle="#B08D57";ctx.lineWidth=Math.max(2,S.wallWidth);drawShapePath(ctx,S.previewShape,(x,y)=>i2s(x,y));ctx.stroke();ctx.setLineDash([]);}
+  if(S.tool==="edit"&&S.selShapeId){const sh=S.shapes.find(s=>s.id===S.selShapeId);if(sh){ctx.setLineDash([6,4]);ctx.strokeStyle="#B08D57";ctx.lineWidth=2;drawShapePath(ctx,sh,(x,y)=>i2s(x,y));ctx.stroke();ctx.setLineDash([]);}}
   if(S.showAB){
     if(S.a&&S.b){const [ax,ay]=i2s(S.a.x,S.a.y),[bx,by]=i2s(S.b.x,S.b.y);
       ctx.setLineDash([8,6]);ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.strokeStyle="#B08D57";ctx.lineWidth=2.5;ctx.stroke();ctx.setLineDash([]);
@@ -487,6 +511,16 @@ function hitWall(sx,sy){const tol=10;for(let k=S.walls.length-1;k>=0;k--){const 
   for(let i=0;i<ch.length-1;i++){if(segDistScreen(sx,sy,ch[i],ch[i+1])<=tol)return ch;}}return null;}
 function hitWallEndpoint(sx,sy){const tol=16;for(let k=S.walls.length-1;k>=0;k--){const ch=S.walls[k];
   for(let i=0;i<ch.length;i++){const [x,y]=i2s(ch[i].x,ch[i].y);if(Math.hypot(sx-x,sy-y)<=tol)return {wall:ch,index:i};}}return null;}
+function shapeCorners(sh){return [{x:sh.x,y:sh.y},{x:sh.x+sh.w,y:sh.y},{x:sh.x+sh.w,y:sh.y+sh.h},{x:sh.x,y:sh.y+sh.h}];}
+function normBox(x0,y0,x1,y1,sq){let dx=x1-x0,dy=y1-y0;if(sq){const s=Math.max(Math.abs(dx),Math.abs(dy));dx=(dx<0?-1:1)*s;dy=(dy<0?-1:1)*s;}return {x:Math.min(x0,x0+dx),y:Math.min(y0,y0+dy),w:Math.abs(dx),h:Math.abs(dy)};}
+function hitShapeHandle(sx,sy){const tol=16;for(let k=S.shapes.length-1;k>=0;k--){const sh=S.shapes[k];const cs=shapeCorners(sh);for(let i=0;i<4;i++){const [x,y]=i2s(cs[i].x,cs[i].y);if(Math.hypot(sx-x,sy-y)<=tol)return {shape:sh,corner:i};}}return null;}
+function hitShapeBody(sx,sy){const [ix,iy]=s2i(sx,sy);for(let k=S.shapes.length-1;k>=0;k--){const sh=S.shapes[k];if(ix>=sh.x&&ix<=sh.x+sh.w&&iy>=sh.y&&iy<=sh.y+sh.h)return sh;}return null;}
+function drawShapePath(g,sh,toScreen){
+  if(sh.type==="circle"){const cx=sh.x+sh.w/2,cy=sh.y+sh.h/2;const [sx,sy]=toScreen(cx,cy);const [ex,ey]=toScreen(cx+sh.w/2,cy);const [fx,fy]=toScreen(cx,cy+sh.h/2);
+    g.beginPath();g.ellipse(sx,sy,Math.max(1,Math.hypot(ex-sx,ey-sy)),Math.max(1,Math.hypot(fx-sx,fy-sy)),0,0,7);}
+  else if(sh.type==="triangle"){const p=[[sh.x+sh.w/2,sh.y],[sh.x,sh.y+sh.h],[sh.x+sh.w,sh.y+sh.h]];g.beginPath();p.forEach((pt,i)=>{const [X,Y]=toScreen(pt[0],pt[1]);i?g.lineTo(X,Y):g.moveTo(X,Y);});g.closePath();}
+  else{const c=shapeCorners(sh);g.beginPath();c.forEach((pt,i)=>{const [X,Y]=toScreen(pt.x,pt.y);i?g.lineTo(X,Y):g.moveTo(X,Y);});g.closePath();}
+}
 
 /* pointer */
 cv.style.touchAction="none";
@@ -503,15 +537,21 @@ cv.addEventListener("pointerdown",e=>{
   if(pointers.size===1){single={id:e.pointerId,dsx:sx,dsy:sy,moved:false,ox:S.view.ox,oy:S.view.oy,drag:null,marker:null};
     if(S.tool==="calib"&&S.showAB){const hit=hitHandle(sx,sy);if(hit){const pt=hit==="a"?S.a:S.b;const [ix,iy]=s2i(sx,sy);single.drag=hit;single.offx=ix-pt.x;single.offy=iy-pt.y;}}
     else if(S.tool==="marker"){const m=hitMarker(sx,sy);if(m){selectMarker(m.id);const [ix,iy]=s2i(sx,sy);single.marker=m;single.offx=ix-m.x;single.offy=iy-m.y;cv.style.cursor=CUR_GRABBING;}}
-    else if(S.tool==="erase"){single.erasing=true;S.cursor={sx,sy};const [ix,iy]=s2i(sx,sy);eraseAt(ix,iy,ERASER/S.view.scale);draw();}
+    else if(S.tool==="erase"){const sb=hitShapeBody(sx,sy);if(sb){S.shapes=S.shapes.filter(s=>s!==sb);if(S.selShapeId===sb.id)S.selShapeId=null;commit();draw();single.erasing=true;single.skipErase=true;}
+      else{single.erasing=true;S.cursor={sx,sy};const [ix,iy]=s2i(sx,sy);eraseAt(ix,iy,ERASER/S.view.scale);draw();}}
     else if(S.tool==="walls"){single.wall=true;}
     else if(S.tool==="edit"){single.edit=true;const [ix,iy]=s2i(sx,sy);single.downImg={x:ix,y:iy};
-      const ep=hitWallEndpoint(sx,sy);
-      if(ep){single.dragEP=ep;}
-      else{const w=hitWall(sx,sy);if(w){single.dragWall=w;single.wallOrig=w.map(p=>({x:p.x,y:p.y}));}}}
+      const sh=hitShapeHandle(sx,sy);
+      if(sh){single.shapeResize=sh;S.selShapeId=sh.shape.id;S.selected=null;renderEditor();renderList();const cs=shapeCorners(sh.shape);single.shapeFixed=cs[(sh.corner+2)%4];}
+      else{const ep=hitWallEndpoint(sx,sy);
+        if(ep){single.dragEP=ep;}
+        else{const sb=hitShapeBody(sx,sy);
+          if(sb){single.shapeMove=sb;S.selShapeId=sb.id;S.selected=null;single.shapeOrig={x:sb.x,y:sb.y,w:sb.w,h:sb.h};renderEditor();renderList();draw();}
+          else{const w=hitWall(sx,sy);if(w){single.dragWall=w;single.wallOrig=w.map(p=>({x:p.x,y:p.y}));}}}}}
+    else if(S.tool==="shape"){single.shapeDraw=true;const [ix,iy]=s2i(sx,sy);single.downImg={x:ix,y:iy};}
     else if(S.tool==="movescan"){single.moveImg=true;const [ix,iy]=s2i(sx,sy);single.downImg={x:ix,y:iy};single.offOrig={x:S.imgOff.x,y:S.imgOff.y};}
     else if(S.tool==="movedraw"){single.moveDraw=true;const [ix,iy]=s2i(sx,sy);single.downImg={x:ix,y:iy};
-      single.wallsOrig=S.walls.map(ch=>ch.map(p=>({x:p.x,y:p.y})));single.markOrig=S.markers.map(m=>({x:m.x,y:m.y}));}}
+      single.wallsOrig=S.walls.map(ch=>ch.map(p=>({x:p.x,y:p.y})));single.markOrig=S.markers.map(m=>({x:m.x,y:m.y}));single.shapesOrig=S.shapes.map(s=>({x:s.x,y:s.y}));}}
 });
 cv.addEventListener("pointermove",e=>{const p=pointers.get(e.pointerId);
   if(!p){if(pointers.size===0){const {sx,sy}=xy(e);S.cursor={sx,sy};
@@ -522,19 +562,23 @@ cv.addEventListener("pointermove",e=>{const p=pointers.get(e.pointerId);
     const nmx=(pts[0].sx+pts[1].sx)/2,nmy=(pts[0].sy+pts[1].sy)/2;const ix=(pinch.mx-pinch.ox)/pinch.scale,iy=(pinch.my-pinch.oy)/pinch.scale;
     S.view.scale=Math.max(0.05,Math.min(20,pinch.scale*(nd/pinch.d)));S.view.ox=nmx-ix*S.view.scale;S.view.oy=nmy-iy*S.view.scale;draw();return;}
   if(single&&e.pointerId===single.id){const dx=sx-single.dsx,dy=sy-single.dsy;if(!single.moved&&Math.hypot(dx,dy)>5)single.moved=true;
-    if(single.erasing){S.cursor={sx,sy};const [ix,iy]=s2i(sx,sy);eraseAt(ix,iy,ERASER/S.view.scale);draw();}
+    if(single.erasing){if(!single.skipErase){S.cursor={sx,sy};const [ix,iy]=s2i(sx,sy);eraseAt(ix,iy,ERASER/S.view.scale);}draw();}
     else if(single.wall){S.cursor={sx,sy};draw();}
     else if(single.edit){
-      if(single.dragEP&&single.moved){const [ix,iy]=s2i(sx,sy);const ch=single.dragEP.wall,i=single.dragEP.index;
+      if(single.shapeResize&&single.moved){const [ix,iy]=s2i(sx,sy);const sh=single.shapeResize.shape;const sq=(sh.type==="square"||sh.type==="circle");const b=normBox(single.shapeFixed.x,single.shapeFixed.y,ix,iy,sq);sh.x=b.x;sh.y=b.y;sh.w=b.w;sh.h=b.h;draw();}
+      else if(single.shapeMove&&single.moved){const [ix,iy]=s2i(sx,sy);single.shapeMove.x=single.shapeOrig.x+(ix-single.downImg.x);single.shapeMove.y=single.shapeOrig.y+(iy-single.downImg.y);draw();}
+      else if(single.dragEP&&single.moved){const [ix,iy]=s2i(sx,sy);const ch=single.dragEP.wall,i=single.dragEP.index;
         const other=ch[i===0?1:0];const raw={x:ix,y:iy};const pt=(S.snap&&ch.length===2&&other)?snapWallPoint(other,raw):raw;
         ch[i]={x:pt.x,y:pt.y};draw();}
       else if(single.dragWall&&single.moved){const [ix,iy]=s2i(sx,sy);const dx=ix-single.downImg.x,dy=iy-single.downImg.y;
         single.dragWall.forEach((p,i)=>{p.x=single.wallOrig[i].x+dx;p.y=single.wallOrig[i].y+dy;});draw();}
       else{draw();}}
+    else if(single.shapeDraw){const [ix,iy]=s2i(sx,sy);const sq=(S.shapeType==="square"||S.shapeType==="circle");const b=normBox(single.downImg.x,single.downImg.y,ix,iy,sq);S.previewShape=Object.assign({type:S.shapeType},b);draw();}
     else if(single.moveImg){const [ix,iy]=s2i(sx,sy);S.imgOff.x=single.offOrig.x+(ix-single.downImg.x);S.imgOff.y=single.offOrig.y+(iy-single.downImg.y);draw();}
     else if(single.moveDraw){const [ix,iy]=s2i(sx,sy);const dx=ix-single.downImg.x,dy=iy-single.downImg.y;
       S.walls.forEach((ch,ci)=>ch.forEach((p,pi)=>{p.x=single.wallsOrig[ci][pi].x+dx;p.y=single.wallsOrig[ci][pi].y+dy;}));
-      S.markers.forEach((m,mi)=>{m.x=single.markOrig[mi].x+dx;m.y=single.markOrig[mi].y+dy;});draw();}
+      S.markers.forEach((m,mi)=>{m.x=single.markOrig[mi].x+dx;m.y=single.markOrig[mi].y+dy;});
+      S.shapes.forEach((sh,si)=>{sh.x=single.shapesOrig[si].x+dx;sh.y=single.shapesOrig[si].y+dy;});draw();}
     else if(single.drag){const [ix,iy]=s2i(sx,sy);const pt=single.drag==="a"?S.a:S.b;pt.x=ix-single.offx;pt.y=iy-single.offy;draw();refreshUI();}
     else if(single.marker){const [ix,iy]=s2i(sx,sy);single.marker.x=ix-single.offx;single.marker.y=iy-single.offy;draw();}
     else if(single.moved){S.view.ox=single.ox+dx;S.view.oy=single.oy+dy;draw();}}
@@ -543,9 +587,10 @@ function endP(e){const p=pointers.get(e.pointerId);if(!p)return;pointers.delete(
   if(pinch){if(pointers.size<2){pinch=null;single=null;}
     if(pointers.size===1){const en=[...pointers.entries()][0];single={id:en[0],dsx:en[1].sx,dsy:en[1].sy,moved:true,ox:S.view.ox,oy:S.view.oy,drag:null,marker:null};}return;}
   if(single&&e.pointerId===single.id){
-    if(single.erasing){commit();}
+    if(single.erasing){if(!single.skipErase)commit();}
     else if(single.wall){}
-    else if(single.edit){if((single.dragEP||single.dragWall)&&single.moved){commit();refreshUI();draw();}}
+    else if(single.edit){if((single.dragEP||single.dragWall||single.shapeResize||single.shapeMove)&&single.moved){commit();refreshUI();draw();}}
+    else if(single.shapeDraw){if(S.previewShape&&(S.previewShape.w>2||S.previewShape.h>2)){S.shapes.push(Object.assign({id:"s"+Date.now()+"_"+Math.floor(Math.random()*1000)},S.previewShape));commit();}S.previewShape=null;refreshUI();draw();}
     else if(single.moveImg){if(single.moved)commit();}
     else if(single.moveDraw){if(single.moved)commit();}
     else if(single.drag){if(single.moved)commit();}
@@ -592,7 +637,7 @@ function syncMarkerBtn(){const b=$("toolMarker");if(b)b.classList.toggle("on",S.
 function addMarker(x,y){S.counter++;const d=S.mdef;
   const m={id:"m"+Date.now()+"_"+S.counter,x,y,name:"Σημάδι "+S.counter,diaM:d.diaM,color:d.color,labelColor:d.labelColor,labelSize:d.labelSize};
   S.markers.push(m);S.selected=m.id;S.placeArmed=true;syncMarkerBtn();commit();renderList();renderEditor();draw();}
-function selectMarker(id){S.selected=id;S.placeArmed=false;syncMarkerBtn();renderList();renderEditor();draw();}
+function selectMarker(id){S.selected=id;S.selShapeId=null;S.placeArmed=false;syncMarkerBtn();renderList();renderEditor();draw();}
 function deleteMarker(id){S.markers=S.markers.filter(m=>m.id!==id);if(S.selected===id)S.selected=null;commit();renderList();renderEditor();refreshUI();draw();}
 function centerOn(m){const w=stage.clientWidth,h=stage.clientHeight;S.view.ox=w/2-m.x*S.view.scale;S.view.oy=h/2-m.y*S.view.scale;draw();}
 function esc(s){return s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
@@ -623,9 +668,19 @@ function renderEditor(){const wrap=$("editorWrap"),box=$("editor");const m=S.mar
 function setTool(t){S.tool=t;document.querySelectorAll("[data-tool]").forEach(b=>b.classList.toggle("on",b.dataset.tool===t));
   if(t==="calib"){S.showAB=true;$("hideAB").checked=false;}
   if(t==="edit")S.wallHandles=true;
+  if(t!=="edit")S.selShapeId=null;
   if(t==="marker")S.placeArmed=true;
-  syncMarkerBtn();
-  cv.style.cursor=(t==="movescan"||t==="movedraw")?"move":((t==="walls"||t==="marker"||t==="erase")?"crosshair":"default");refreshUI();draw();}
+  syncMarkerBtn();syncShapeBtns();
+  cv.style.cursor=(t==="movescan"||t==="movedraw")?"move":((t==="walls"||t==="marker"||t==="erase"||t==="shape")?"crosshair":"default");refreshUI();draw();}
+function syncShapeBtns(){const map={shapeRect:"rect",shapeSquare:"square",shapeTri:"triangle",shapeCircle:"circle"};
+  for(const id in map){const b=$(id);if(b)b.classList.toggle("on",S.tool==="shape"&&S.shapeType===map[id]);}}
+function pickShape(t){S.shapeType=t;setTool("shape");}
+let shapeClipboard=null;
+function copyShape(){if(S.tool!=="edit"){setStatus("wallStatus","Η αντιγραφή γίνεται μόνο στην «Επεξεργασία».",false);return;}const sh=S.shapes.find(s=>s.id===S.selShapeId);if(sh){shapeClipboard={type:sh.type,x:sh.x,y:sh.y,w:sh.w,h:sh.h};setStatus("wallStatus","Σχήμα αντιγράφηκε.",true);}else{setStatus("wallStatus","Επίλεξε πρώτα ένα σχήμα.",false);}}
+function pasteShape(){if(S.tool!=="edit"){setStatus("wallStatus","Η επικόλληση γίνεται μόνο στην «Επεξεργασία».",false);return;}if(!shapeClipboard){setStatus("wallStatus","Δεν υπάρχει σχήμα στο πρόχειρο.",false);return;}
+  const off=Math.max(12,Math.min(shapeClipboard.w,shapeClipboard.h)*0.2);
+  const ns=Object.assign({},shapeClipboard,{id:"s"+Date.now()+"_"+Math.floor(Math.random()*1000),x:shapeClipboard.x+off,y:shapeClipboard.y+off});
+  S.shapes.push(ns);S.selShapeId=ns.id;setTool("edit");commit();refreshUI();draw();}
 document.querySelectorAll("[data-tool]").forEach(b=>b.addEventListener("click",()=>setTool(b.dataset.tool)));
 
 /* A-B buttons */
@@ -660,6 +715,12 @@ $("wallColor").addEventListener("input",e=>{S.wallColor=e.target.value;scheduleS
 function setWallWidth(v){S.wallWidth=Math.max(1,Math.min(24,parseInt(v)||3));$("wallWidth2").value=S.wallWidth;scheduleSave();draw();}
 $("wallWidth2").addEventListener("input",e=>setWallWidth(e.target.value));
 $("exportPng").addEventListener("click",exportPng);
+$("shapeRect").addEventListener("click",()=>pickShape("rect"));
+$("shapeSquare").addEventListener("click",()=>pickShape("square"));
+$("shapeTri").addEventListener("click",()=>pickShape("triangle"));
+$("shapeCircle").addEventListener("click",()=>pickShape("circle"));
+$("copyShape").addEventListener("click",copyShape);
+$("pasteShape").addEventListener("click",pasteShape);
 $("copyState").addEventListener("click",copyDefaultState);
 function exportPng(){
   if(!S.imgW){alert("Άνοιξε πρώτα μια κάτοψη.");return;}
@@ -675,7 +736,19 @@ function exportPng(){
 $("zoomIn").addEventListener("click",()=>zoomBy(1.2));$("zoomOut").addEventListener("click",()=>zoomBy(1/1.2));$("zoomFit").addEventListener("click",fit);
 $("undoBtn").addEventListener("click",undo);
 $("undoBtn3").addEventListener("click",undo);
-window.addEventListener("keydown",e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="z"){e.preventDefault();undo();}});
+window.addEventListener("keydown",e=>{
+  const mod=e.ctrlKey||e.metaKey;
+  const tag=(document.activeElement&&document.activeElement.tagName)||"";
+  const inField=tag==="INPUT"||tag==="TEXTAREA";
+  if(mod&&e.key.toLowerCase()==="z"){e.preventDefault();undo();return;}
+  if(inField)return;
+  if(e.key==="Delete"||e.key==="Backspace"){
+    if(S.selShapeId){const sh=S.shapes.find(s=>s.id===S.selShapeId);if(sh){e.preventDefault();S.shapes=S.shapes.filter(s=>s!==sh);S.selShapeId=null;commit();refreshUI();draw();return;}}
+    if(S.selected){e.preventDefault();deleteMarker(S.selected);return;}
+  }
+  if(mod&&e.key.toLowerCase()==="c"){if(S.tool==="edit"&&S.selShapeId){e.preventDefault();copyShape();}return;}
+  if(mod&&e.key.toLowerCase()==="v"){if(S.tool==="edit"&&shapeClipboard){e.preventDefault();pasteShape();}return;}
+});
 function openPanel(){document.body.classList.add("panel-open");}function closePanel(){document.body.classList.remove("panel-open");}
 $("panelToggle").addEventListener("click",openPanel);$("panelClose").addEventListener("click",closePanel);$("backdrop").addEventListener("click",closePanel);
 
@@ -690,7 +763,8 @@ function refreshUI(){
   const cb=$("cbar");
   if(!S.imgW)cb.innerHTML="Άνοιξε μια κάτοψη.";
   else if(S.tool==="walls")cb.innerHTML="<b>Διπλό κλικ</b> = σημείο (κλειδώνει &amp; συνεχίζει) · <b>μονό κλικ</b> ολοκληρώνει τη γραμμή.";
-  else if(S.tool==="edit")cb.innerHTML="Σύρε τις <b>λαβές</b> για ρύθμιση · κράτα πατημένο στη <b>μέση</b> τοίχου για μετακίνηση.";
+  else if(S.tool==="edit")cb.innerHTML="Σύρε τις <b>λαβές</b> για ρύθμιση · κράτα πατημένο στη <b>μέση</b> τοίχου/σχήματος για μετακίνηση.";
+  else if(S.tool==="shape")cb.innerHTML="<b>Σύρε</b> στο σχέδιο για να φτιάξεις το σχήμα · άλλαξε μέγεθος από «Επεξεργασία».";
   else if(S.tool==="movescan")cb.innerHTML="Σύρε για να <b>μετακινήσεις το σκαναρισμένο</b> κάτω από τους τοίχους.";
   else if(S.tool==="movedraw")cb.innerHTML="Σύρε για να <b>μετακινήσεις τη σχεδίαση</b> (τοίχους &amp; σημάδια) πάνω στο φόντο.";
   else if(S.tool==="erase")cb.innerHTML="Γόμα: άγγιξε <b>κορυφή</b> ή <b>γραμμή τοίχου</b> για διαγραφή.";
